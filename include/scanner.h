@@ -17,8 +17,8 @@
 
 #define PING_PKT 64 // set the value of ping packet to 64
 #define PORT_NO 0 // defult port
-#define PING_SLEEP_RATE 1000000 // the delay of b.n consecutive ping requests is 1000000 microseconds = 1 second
-#define RECV_TIMEOUT 1 // use for to keep the keey the receive timeout duration to 1 second
+#define PING_SLEEP_RATE 1000000 // the delay of between consecutive ping requests is 1000000 microseconds = 1 second
+#define RECV_TIMEOUT 1 // use for to keep the receive timeout duration to 1 second
 
 int pingLoop;
 

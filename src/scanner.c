@@ -6,12 +6,19 @@
 #include <fcntl.h>
 #include <signal.h>
 
+volatile sig_atomic_t pingLoop = 1;
+
+static double diff_ms(const struct timespec* a, const struct timespec* b)
+{
+    return (b -> tv_sec - a -> tv_sec) * 1000.0 + (b -> tv_nsec - a -> tv_nsec) / 1000000.0;
+}
+
 unsigned short checksum(void* b, int len)
 {
 	unsigned short* buf = b;
-	ubsigned int sum = 0;
+	unsigned int sum = 0;
 
-	for(; len >; len -= 2)
+	for(; len > 1; len -= 2)
 		sum += *buf++;
 	if (len == 1)
 		sum += *(unsigned char *)buf;
@@ -27,6 +34,7 @@ unsigned short checksum(void* b, int len)
 
 void intHandler(int dummy)
 {
+    (void)dummy;
 	pingLoop = 0;
 }
 
@@ -81,18 +89,29 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
     struct timespec t_start, t_end;
     struct timeval tv_out = { .tv_sec = RECV_TIMEOUT, .tv_usec = 0 };
 
-    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
+    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) 
+    {
         fprintf(stderr, "\n\033[31m===TTL failed!===\033[0m\n");
-        return -1;
+        return -1.0L;
+
     }
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, sizeof(tv_out));
+
+
+    if(setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, sizeof(tv_out)) != 0)
+    {
+        fprintf(stderr, "\n\033[31m===Could not set receive timeout! ===\033[0m\n");
+        return -1.0L;
+    }
 
     for (int j = 0; j < 3; j++)
     {
+        unsigned short seq = (unsigned short)(j + 1);
+
+
         memset(&pckt, 0, sizeof(pckt));
         pckt.hdr.type = ICMP_ECHO;
         pckt.hdr.un.echo.id = htons(getpid() & 0xFFFF);
-        pckt.hdr.un.echo.sequence = htons(j);
+        pckt.hdr.un.echo.sequence = htons(seq);
 
         size_t i;
         for (i = 0; i < sizeof(pckt.msg) - 1; i++)
@@ -102,7 +121,16 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
         pckt.hdr.checksum = 0;
         pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
 
-        usleep(PING_SLEEP_RATE);
+        
+        if ( j > 0 ) 
+        {
+            struct timespec ts;
+            ts.tv_sec = PING_SLEEP_RATE / 1000000;
+            ts.tv_nsec = (PING_SLEEP_RATE % 1000000) * 1000L;
+            nanosleep(&ts, NULL);
+        }
+        
+
 
         clock_gettime(CLOCK_MONOTONIC, &t_start);
         if (sendto(sockfd, &pckt, sizeof(pckt), 0,
@@ -112,38 +140,70 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
             continue;
         }
 
-       
+
+     for(;;){
+         
         unsigned char rbuf[1024];
         struct sockaddr_in r_addr;
         socklen_t addr_len = sizeof(r_addr);
+        
+        clock_gettime(CLOCK_MONOTONIC, &t_end);
+        if(diff_ms(&t_start, &t_end) >= RECV_TIMEOUT * 1000.0){
+            fprintf(stderr, "\n\033[31m===Failed to Receive Packet!===\033[0m\n");
+            break;
+        }
 
-        ssize_t n = recvfrom(sockfd, rbuf, sizeof(rbuf), 0,
-                             (struct sockaddr *)&r_addr, &addr_len);
+
+        ssize_t n = recvfrom(sockfd, rbuf, sizeof(rbuf), 0, (struct sockaddr *)&r_addr, &addr_len);
+
+
+
         if (n <= 0) {
             fprintf(stderr, "\n\033[31m===Failed to Receive Packet!===\033[0m\n");
-            continue;
+            break;
         }
+
+
+
         clock_gettime(CLOCK_MONOTONIC, &t_end);
+
 
         struct iphdr *ip = (struct iphdr *)rbuf;
         size_t ip_len = ip->ihl * 4;
-        if (n < (ssize_t)(ip_len + sizeof(struct icmphdr))) continue;
+        if (ip_len < sizeof(struct iphdr) || n < (ssize_t)(ip_len + sizeof(struct icmphdr))) 
+            continue;
+
+
 
         struct icmphdr *icmp = (struct icmphdr *)(rbuf + ip_len);
         if (icmp->type != ICMP_ECHOREPLY || icmp->code != 0)
             continue;
+        if (icmp ->un.echo.id != htons(getpid() & 0xFFFF))
+            continue;
+        if (icmp->un.echo.sequence != htons(seq))
+            continue;
+        if (r_addr.sin_addr.s_addr != ping_addr -> sin_addr.s_addr)
+            continue;
 
-        double rtt = (t_end.tv_sec - t_start.tv_sec) * 1000.0 +
-                     (t_end.tv_nsec - t_start.tv_nsec) / 1000000.0;
+
+
+
+        double rtt = diff_ms(&t_start, &t_end);
         total_ms += rtt;
         received++;
 
-        fprintf(stderr, "%d bytes from %s (h: %s) (%s) msg_seq = %d ttl = %d rtt = %.2f ms.\n",
-                PING_PKT_S, ping_dom, rev_host ? rev_host : "unknown",
-                ping_ip, j + 1, ttl_val, rtt);
+
+        printf("%zd bytes from %s (h: %s) (%s) msg_seq = %d ttl = %d rtt = %.2f ms.\n",
+                (ssize_t)(n - (ssize_t)ip_len), ping_dom,
+                rev_host ? rev_host : "unknown",
+                ping_ip, seq, ip->ttl, rtt);
+
+        break;
+     }
+
     }
 
-    return received ? total_ms / received : 0;
+    return received ? total_ms / received : -1.0;
 }
 
 
@@ -155,7 +215,7 @@ long double ping(char *host)
     char *ip_addr = dns_lookup(host, &addr_con);
     if (ip_addr == NULL) {
         fprintf(stderr, "\033[31m===Could not Find The DNS!===\033[0m\n");
-        return 0;
+        return -1.0;
     }
 
     char *reverse_hostname = reverse_dns_lookup(ip_addr);
@@ -165,7 +225,7 @@ long double ping(char *host)
         perror("[-]Unable to open socket (need root / CAP_NET_RAW)");
         free(ip_addr);
         free(reverse_hostname);
-        return 0;
+        return -1.0;
     }
 
     long double result = send_ping(sockfd, &addr_con, reverse_hostname, ip_addr, host);

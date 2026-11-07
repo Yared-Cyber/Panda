@@ -72,89 +72,79 @@ char *reverse_dns_lookup(char *ip_addr)
 
 
 
-long double send_ping(int ping_sockfd, struct sockaddr_in *ping_addr, char* ping_dom, char* ping_ip, char* rev_host)
+long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
+                      char *rev_host, char *ping_ip, char *ping_dom)
 {
-	int ttl_val = 64, msg_count = 0, i, addr_len, flag = 1, msg_received_count = 0;
+    int ttl_val = 64, received = 0;
+    long double total_ms = 0;
+    struct ping_pkt pckt;
+    struct timespec t_start, t_end;
+    struct timeval tv_out = { .tv_sec = RECV_TIMEOUT, .tv_usec = 0 };
 
-	struct ping_pkt pckt;
-	struct sockaddr_in r_addr;
-	struct timespec time_start, time_end, tfs, tfe;
-	long double rtt_msec = 0, total_msec = 0, rtt_msecs[5], avg_rtt;
-	struct timeval tv_out;
-	tv_out.tv_sec = RECV_TIMEOUT;
-	tv_out.tv_usec = 0;
+    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
+        fprintf(stderr, "\n\033[31m===TTL failed!===\033[0m\n");
+        return -1;
+    }
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv_out, sizeof(tv_out));
 
+    for (int j = 0; j < 3; j++)
+    {
+        memset(&pckt, 0, sizeof(pckt));
+        pckt.hdr.type = ICMP_ECHO;
+        pckt.hdr.un.echo.id = htons(getpid() & 0xFFFF);
+        pckt.hdr.un.echo.sequence = htons(j);
 
-	clock_gettime(CLOCK_MONOTONIC, &tfs);
+        size_t i;
+        for (i = 0; i < sizeof(pckt.msg) - 1; i++)
+            pckt.msg[i] = i + '0';
+        pckt.msg[i] = 0;
 
-	if (setsockopt(ping_sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
-	{
-		fprintf(stderr, "\n\033[31m===TTL failed!===\033[0m\n");
-		return -1;
-	}
+        pckt.hdr.checksum = 0;
+        pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
 
-	setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_out, sizeof tv_out);
+        usleep(PING_SLEEP_RATE);
 
-	for(int j = 0; j < 3; j++)
-	{
-		flag = 1;
-		bzero(&pckt, sizeof(pckt));
+        clock_gettime(CLOCK_MONOTONIC, &t_start);
+        if (sendto(sockfd, &pckt, sizeof(pckt), 0,
+                   (struct sockaddr *)ping_addr, sizeof(*ping_addr)) <= 0)
+        {
+            fprintf(stderr, "\n\033[31m===Failed to Send the Packet!===\033[0m\n");
+            continue;
+        }
 
-		pckt.hdr.type = ICMP_ECHO;
-		pckt.hdr.un.echo.id = getpid();
+       
+        unsigned char rbuf[1024];
+        struct sockaddr_in r_addr;
+        socklen_t addr_len = sizeof(r_addr);
 
-		for ( i = 0; i < sizeof(pckt.msg) - 1; i++)
-			pckt.msg[i] = i + '0';
+        ssize_t n = recvfrom(sockfd, rbuf, sizeof(rbuf), 0,
+                             (struct sockaddr *)&r_addr, &addr_len);
+        if (n <= 0) {
+            fprintf(stderr, "\n\033[31m===Failed to Receive Packet!===\033[0m\n");
+            continue;
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t_end);
 
-		pckt.msg[i] = 0;
-		pckt.hdr.un.echo.sequence = msg_count++;
-		pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
+        struct iphdr *ip = (struct iphdr *)rbuf;
+        size_t ip_len = ip->ihl * 4;
+        if (n < (ssize_t)(ip_len + sizeof(struct icmphdr))) continue;
 
-		usleep(PING_SLEEP_RATE);
+        struct icmphdr *icmp = (struct icmphdr *)(rbuf + ip_len);
+        if (icmp->type != ICMP_ECHOREPLY || icmp->code != 0)
+            continue;
 
-		clock_gettime(CLOCK_MONOTONIC, &time_start);
-		if( sendto(ping_sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr*) ping_addr, sizeof(*ping_addr)) <= 0)
-		{
-			fprintf(stderr, "\n\033[31m===Failed to Send the Packet!===\033[0m\n");
-			flag = 0;
-		}
+        double rtt = (t_end.tv_sec - t_start.tv_sec) * 1000.0 +
+                     (t_end.tv_nsec - t_start.tv_nsec) / 1000000.0;
+        total_ms += rtt;
+        received++;
 
-		addr_len = sizeof(r_addr);
+        fprintf(stderr, "%d bytes from %s (h: %s) (%s) msg_seq = %d ttl = %d rtt = %.2f ms.\n",
+                PING_PKT_S, ping_dom, rev_host ? rev_host : "unknown",
+                ping_ip, j + 1, ttl_val, rtt);
+    }
 
-		if ( recvfrom(ping_sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr*)&r_addr, &addr_len) <= 0 && msg_count)
-		{
-			fprintf(stderr, "\n\033[31m===Failed to Receive Packet!===\033[0m\n");
-		}
-
-		else 
-		{
-			clock_gettime(CLOCK_MONOTONIC, &time_end);
-
-			double rtt_msec = (time_end.tv_sec - time_start.tv_sec) * 1000.0 + (time_end.tv_nsec - time_start.tv_nsec) / 1000000.0;
-
-			rtt_msecs[j] = rtt_msec;
-
-			if(flag)
-			{
-				if(!(pckt.hdr.type == ICMP_ECHOREPLY && pckt.hdr.code == 0))
-				{
-					return 0;
-				}
-
-				else
-				{
-					fprintf(stderr, "%d bytes from %s (h: %s) (%s) msg_seq = %d ttl = %d rrt = %.2f ms.\n", PING_PKT_S, ping_dom, rev_host, ping_ip, msg_count, ttl_val, (double)rtt_msec);
-
-					msg_received_count++;
-				}
-			}
-		}
-	}
-
-		return (rtt_msecs[0] + rtt_msecs[1] + rtt_msecs[2]) / 3;
+    return received ? total_ms / received : 0;
 }
-
-
 
 
 

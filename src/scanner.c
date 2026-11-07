@@ -8,57 +8,19 @@
 
 unsigned short checksum(void* b, int len)
 {
-	unsigned int sum = 0;
-	unsigned short* buf = (unsigned short* )b;
+	unsigned short* buf = b;
+	ubsigned int sum = 0;
 
-	__asm__ __volatile__ (
-		"xor %%eax, %%eax\n\t"
-		"xor %%ebx, %%ebx\n\t"
-		"xor %%edx, %%edx\n\t"
+	for(; len >; len -= 2)
+		sum += *buf++;
+	if (len == 1)
+		sum += *(unsigned char *)buf;
 
-		"mov %1, %%esi\n\t"
-		"mov %2, %%ecx\n\t"
+	sum = (sum >> 16) + (sum & 0xFFFF);
+	sum += (sum >> 16);
 
-		"shr $1, %%ecx\n\t"
-		"jz 2f\n\t"
-
-		"1:\n\t"
-		"lodsw\n\t"
-		"add %%eax, %%ebx\n\t"
-		"adc $0, %%edx\n\t"
-		"loop 1b\n\t"
-
-		"2:\n\t"
-		"mov %2, %%ecx\n\t"
-		"test $1, %%ecx\n\t"
-		"jz 3f\n\t"
-
-		"xor %%eax, %%eax\n\t"
-		"movb (%%esi), %%bl\n\t"
-		"add %%ebx, %%edx\n\t"
-
-		"3:\n\t"
-		"mov %%edx, %%eax\n\t"
-		"shl $16, %%eax\n\t"
-		"or %%ebx, %%eax\n\t"
-
-		"mov %%eax, %%ebx\n\t"
-		"shr $16, %%ebx\n\t"
-		"add %%ebx, %%ebx\n\t"
-		"mov %%eax, %%ebx\n\t"
-		"shr $16, %%ebx\n\t"
-		"add %%ebx, %%eax\n\t"
-		
-		"not %%ax\n\t"
-		"mov %%ax, %0\n\t"
-
-		: "=r" (sum)
-		: "r" (buf), "r" (len)
-		: "%eax", "%ebx", "%ecx", "%edx", "%esi", "cc", "memory"
-	);
-
-	return (unsigned short)sum;
-}
+	return (unsigned short)~sum;
+	}
 
 
 

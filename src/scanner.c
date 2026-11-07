@@ -25,31 +25,32 @@ unsigned short checksum(void* b, int len)
 
 
 
-void intHnadler(int dummy)
+void intHandler(int dummy)
 {
 	pingLoop = 0;
 }
 
 
-char *dns_lookup(char* addr_host, struct sockaddr_in* addr_con)
+char *dns_lookup(char *addr_host, struct sockaddr_in *addr_con)
 {
-	struct hostent* host_entity;
-	char* ip = (char*) malloc(NI_MAXHOST*sizeof(char));
-	int i;
+    struct hostent *host_entity = gethostbyname(addr_host);
+    if (host_entity == NULL)
+        return NULL;
 
-	if ((host_entity = gethostbyname(addr_host)) == NULL)
-	{
-		return NULL;
-	}
+    char *ip = malloc(NI_MAXHOST);
+    if (!ip) return NULL;
 
-	strcpy(ip, inet_ntoa(*(struct in_addr* )host_entity->h_addr));
-	
-	(*addr_con).sin_family = host_entity->h_addrtype;
-	(*addr_con).sin_port = htons(PORT_NO);
-	(*addr_con).sin_addr.s_addr = *(struct in_addr*)host_entity->h_addr;
+    struct in_addr *a = (struct in_addr *)host_entity->h_addr_list[0];
+    strcpy(ip, inet_ntoa(*a));
 
-	return ip;
+    memset(addr_con, 0, sizeof(*addr_con));
+    addr_con->sin_family = host_entity->h_addrtype;
+    addr_con->sin_port   = htons(PORT_NO);
+    addr_con->sin_addr   = *a;
+    return ip;
 }
+
+
 
 char* reverse_dns_lookup(char* ip_addr)
 {

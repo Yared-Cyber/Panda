@@ -16,7 +16,7 @@
 
 #define RECV_TIMEOUT 1 
 
-extern int pingLoop;
+volatile sig_atomic_t pingLoop = 1;
 
 struct ping_pkt
 {
@@ -29,7 +29,7 @@ void intHandler(int dummy);
 char* dns_lookup(char* addr_host, struct sockaddr_in* addr_con);
 char* reverse_dns_lookup(char* ip_addr);
 long double send_ping(int ping_sockfd, struct sockaddr_in *ping_addr, char* ping_dom, char* ping_ip, char* rev_host);
-double ping(char* host);
+long double ping(char* host);
 
 
 #endif

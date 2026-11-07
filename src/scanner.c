@@ -52,26 +52,24 @@ char *dns_lookup(char *addr_host, struct sockaddr_in *addr_con)
 
 
 
-char* reverse_dns_lookup(char* ip_addr)
+char *reverse_dns_lookup(char *ip_addr)
 {
-	struct sockaddr_in temp_addr;
-	socklen_t len;
-	char buf[NI_MAXHOST], *ret_buf;
+    struct sockaddr_in temp_addr;
+    char buf[NI_MAXHOST];
 
-	temp_addr.sin_family = AF_INET;
-	temp_addr.sin_addr.s_addr = inet_addr(ip_addr);
-	len = sizeof(struct sockaddr_in);
+    memset(&temp_addr, 0, sizeof(temp_addr));
+    temp_addr.sin_family = AF_INET;
+    temp_addr.sin_addr.s_addr = inet_addr(ip_addr);
 
-	if (getnameinfo((struct sockaddr* )& temp_addr, len, buf, sizeof(buf), NULL, 0, NI_NAMERQD))
-	{
-		fprintf(stderr, "\n\033[31m===Could not Reslove Reverse lookup of hostname===\033[0m\n");
-		return 	NULL;
-	}
-
-	ret_buf = (char*)malloc((strlen(buf) +1)*sizeof(char));
-	strcpy(ret_buf, buf);
-	return ret_buf;
+    if (getnameinfo((struct sockaddr *)&temp_addr, sizeof(temp_addr),
+                    buf, sizeof(buf), NULL, 0, NI_NAMEREQD))
+    {
+        fprintf(stderr, "\n\033[31m===Could not resolve reverse lookup of hostname===\033[0m\n");
+        return NULL;
+    }
+    return strdup(buf);
 }
+
 
 
 long double send_ping(int ping_sockfd, struct sockaddr_in *ping_addr, char* ping_dom, char* ping_ip, char* rev_host)

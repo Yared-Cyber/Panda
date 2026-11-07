@@ -149,35 +149,29 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
 
 
 
-long double ping(char* host)
+long double ping(char *host)
 {
-	int sockfd;
-	char *ip_addr, *reverse_hostname;
-	struct sockaddr_in addr_con;
-	int addrlen =sizeof(addr_con);
-	long double result;
+    struct sockaddr_in addr_con;
+    char *ip_addr = dns_lookup(host, &addr_con);
+    if (ip_addr == NULL) {
+        fprintf(stderr, "\033[31m===Could not Find The DNS!===\033[0m\n");
+        return 0;
+    }
 
-	ip_addr = dns_lookup(host, &addr_con);
-	if(ip_addr == NULL)
-	{
-		fprintf(stderr, "\033[31m===Could not Find The DNS!===\033[0m\n");
-		return 0;
-	}
+    char *reverse_hostname = reverse_dns_lookup(ip_addr);
 
-	reverse_hostname = reverse_dns_lookup(ip_addr);
+    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (sockfd < 0) {
+        perror("[-]Unable to open socket (need root / CAP_NET_RAW)");
+        free(ip_addr);
+        free(reverse_hostname);
+        return 0;
+    }
 
-	sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-	if(sockfd < 0)
-	{
-		printf("[-]Unable to Open The Socket!!!\n");
-		return 0;
-	}
+    long double result = send_ping(sockfd, &addr_con, reverse_hostname, ip_addr, host);
 
-	result = send_ping(sockfd, &addr_con, reverse_hostname, ip_addr, host);
-
-	close(sockfd);
-	free(ip_addr);
-	free(reverse_hostname);
-
-	return result;
+    close(sockfd);
+    free(ip_addr);
+    free(reverse_hostname);
+    return result;
 }

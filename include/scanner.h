@@ -16,7 +16,7 @@
 #define PING_SLEEP_RATE 1000000
 #define RECV_TIMEOUT 1 
 
-volatile sig_atomic_t pingLoop = 1;
+extern volatile sig_atomic_t pingLoop;
 
 struct ping_pkt
 {

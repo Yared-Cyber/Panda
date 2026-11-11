@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <errno.h>
 
 volatile sig_atomic_t pingLoop = 1;
 
@@ -84,6 +85,7 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
                       char *rev_host, char *ping_ip, char *ping_dom)
 {
     int ttl_val = 64, received = 0;
+    int sent = 0;
     long double total_ms = 0;
     struct ping_pkt pckt;
     struct timespec t_start, t_end;
@@ -103,24 +105,22 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
         return -1.0L;
     }
 
-    for (int j = 0; j < 3; j++)
-    {
-        unsigned short seq = (unsigned short)(j + 1);
+   for (int j = 0; pingLoop; j++)
+   {
+       unsigned short seq = (unsigned short)(j + 1);
 
+       memset(&pckt, 0, sizeof(pckt));
+       pckt.hdr.type = ICMP_ECHO;
+       pckt.hdr.un.echo.id = htons(getpid() & 0xFFFF);
+       pckt.hdr.un.echo.sequence = htons(seq);
 
-        memset(&pckt, 0, sizeof(pckt));
-        pckt.hdr.type = ICMP_ECHO;
-        pckt.hdr.un.echo.id = htons(getpid() & 0xFFFF);
-        pckt.hdr.un.echo.sequence = htons(seq);
+       size_t i;
+       for (i = 0; i < sizeof(pckt.msg) - 1; i++)
+           pckt.msg[i] = i + '0';
+       pckt.msg[i] = 0;
 
-        size_t i;
-        for (i = 0; i < sizeof(pckt.msg) - 1; i++)
-            pckt.msg[i] = i + '0';
-        pckt.msg[i] = 0;
-
-        pckt.hdr.checksum = 0;
-        pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
-
+       pckt.hdr.checksum = 0;
+       pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
         
         if ( j > 0 ) 
         {
@@ -128,6 +128,9 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
             ts.tv_sec = PING_SLEEP_RATE / 1000000;
             ts.tv_nsec = (PING_SLEEP_RATE % 1000000) * 1000L;
             nanosleep(&ts, NULL);
+
+            if (!pingLoop)
+                break;
         }
         
 
@@ -140,6 +143,7 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
             continue;
         }
 
+        sent++;
 
      for(;;){
          
@@ -159,6 +163,10 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
 
 
         if (n <= 0) {
+
+            if ( errno == EINTR && !pingLoop)
+                break;
+
             fprintf(stderr, "\n\033[31m===Failed to Receive Packet!===\033[0m\n");
             break;
         }
@@ -202,6 +210,8 @@ long double send_ping(int sockfd, struct sockaddr_in *ping_addr,
      }
 
     }
+    
+   printf("\n-- %s ping statistics --\n" "%d packets transmiteed, %d received, %.0f%% packet loss\n", ping_dom, sent, received, sent ? 100.0 * (sent - received) / sent : 0.0); 
 
     return received ? total_ms / received : -1.0;
 }
@@ -227,6 +237,14 @@ long double ping(char *host)
         free(reverse_hostname);
         return -1.0;
     }
+
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = intHandler;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+
 
     long double result = send_ping(sockfd, &addr_con, reverse_hostname, ip_addr, host);
 

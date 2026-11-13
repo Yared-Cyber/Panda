@@ -1,4 +1,4 @@
-#include "Portsacn.h"
+#include "Portscan.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,9 +12,9 @@
 #include <netdb.h>
 
 struct port_info {
-	unisined short port;
+	unsigned short port;
 	const char* service;
-}
+};
 
 static const struct port_info PORTS[] = {
     {21,    "ftp"},
@@ -81,13 +81,13 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
 {
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
-    hints.sin_family = AF_INET;
-    hints.sin_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
 
     int rc = getaddrinfo(host, NULL, &hints, &res);
     if (rc != 0 || res == NULL)
     {
-        fprintf(stderr, "\n\033[31m===Could not resolve %s: %s===\003[0m\n", host, gai_strerror(rc));
+        fprintf(stderr, "\n\033[31m===Could not resolve %s: %s===\033[0m\n", host, gai_strerror(rc));
         return -1;
     }
 
@@ -125,7 +125,7 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
             continue;
         }
 
-        target.sin_port = htons(PORTS[i].ports);
+        target.sin_port = htons(PORTS[i].port);
         int r = connect(fd, (struct sockaddr* )&target, sizeof(target));
 
         if (r == 0)
@@ -153,7 +153,7 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
 
     while (pending > 0 && *keep_running)
     {
-        long long left = deadline - now_ms90;
+        long long left = deadline - now_ms();
         if(left <= 0) break;
 
         int ready = poll(pfds, NUM_PORTS, (int)left);
@@ -174,12 +174,12 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
                 continue;
 
             int err = 0;
-            socklent_t len = sezeof(err);
-            if (getsockopt(pfds[i], SOL_SOCKET, SO_ERROR, &err, &len) < 0 )
+            socklen_t len = sizeof(err);
+            if (getsockopt(pfds[i].fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 )
                 err = errno;
 
             if (err == 0) state[i] = PORT_OPEN;
-            else if (err == ECONNREFUESED) state[i] = PORT_CLOSED;
+            else if (err == ECONNREFUSED) state[i] = PORT_CLOSED;
             else state[i] = PORT_FILTERED;
 
             close(pfds[i].fd);
@@ -191,7 +191,7 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
     int interrupted = !*keep_running;
     for(int i =0; i < NUM_PORTS; i++)
     {
-        if (pfds[i].fd >== 0)
+        if (pfds[i].fd >= 0)
         {
             close(pfds[i].fd);
             pfds[i].fd = -1;
@@ -211,19 +211,19 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
             case PORT_OPEN: 
                 n_open++;
                 snprintf(port_col, sizeof(port_col), "%u/tcp", PORTS[i].port);
-                printf("%-10s \033[32m%-8s\033[0m %d\n", port_col, "open", PORTS[i].service);
+                printf("%-10s \033[32m%-8s\033[0m %s\n", port_col, "open", PORTS[i].service);
                 break;
 
             case PORT_CLOSED: n_closed++; break;
-            case PORT_FILTERED: N_filtered++; break;
+            case PORT_FILTERED: n_filtered++; break;
             default: break;
         }
     }
 
     if (n_open == 0)
-        printf("(noopen ports found)\n");
+        printf("(no open ports found)\n");
 
-    printf("\n%d open, 5d closed, %d filtered", n_open, n_closed, n_filtered);
+    printf("\n%d open, %d closed, %d filtered", n_open, n_closed, n_filtered);
 
     if (interrupted)
         printf(" (scan interrupted, some ports were not finished) ");

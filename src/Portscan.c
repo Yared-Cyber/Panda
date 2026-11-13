@@ -46,3 +46,32 @@ static const struct port_info PORTS[] = {
     {8443,  "https-alt"},
     {27017, "mongodb"}
 };
+
+#define NUM_PORTS ((int)(sizeof(PORTS) / sizeof(PORTS[0])))
+
+enum {
+    PORT_UNKNOWN,
+    PORT_OPEN,
+    PORT_CLOSED,
+    PORT_FILTERED
+};
+
+
+
+static long long now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+}
+
+
+
+static int set_nonblocking (int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+
+    if (flags < 0) return -1;
+
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}

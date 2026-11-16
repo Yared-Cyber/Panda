@@ -11,6 +11,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
+#define TICK_MS 100
+
 struct port_info {
 	unsigned short port;
 	const char* service;
@@ -156,6 +158,8 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
         long long left = deadline - now_ms();
         if(left <= 0) break;
 
+        int wait_ms = left > TICK_MS ? TICK_MS : (int)left;
+
         int ready = poll(pfds, NUM_PORTS, (int)left);
         if (ready < 0)
         {
@@ -199,6 +203,10 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
             state[i] = interrupted ? PORT_UNKNOWN : PORT_FILTERED;
         }
     }
+
+    int done = interrupted ? NUM_PORTS - pending : NUM_PORTS;
+    tui_progess(done, NUM_PORTS, count_open(state, NUM_PORTS));
+    tui_progress_done();
         
     int n_open = 0, n_closed = 0, n_filtered = 0;
     char port_col[16];

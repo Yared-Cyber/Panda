@@ -1,6 +1,8 @@
 #include "tui.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #define C_RESET  "\033[0m"
@@ -64,13 +66,12 @@ void tui_logo(void){
 
 	box_edge();
 
-	printf("\n " C_YELLOW "Only scan hosts you own or have permission to test. This tool was built of class assignment and is not for public use." C_RESET "\n\n");
+	printf("\n " C_YELLOW "Only scan hosts you own or have permission to test. This tool was built for a class assignment and is not for public use." C_RESET "\n\n");
 }
 
 
 int tui_menu(const char* host){
 	char line[64];
-	int choice;
 
 	printf("  " C_BOLD "Target:" C_RESET " %s\n\n", host);
 
@@ -86,8 +87,25 @@ int tui_menu(const char* host){
 		if (!fgets(line, sizeof(line), stdin))
 			return TUI_QUIT;
 
-		if (sscanf(line, "%d", &choice) == 1 && choice >= TUI_QUIT && choice <= TUI_BOTH)
-			return choice;
+		if (!strchr(line, '\n'))
+		{
+			int c;
+			while ((c = getchar()) != '\n' && c != EOF);
+		}
+
+		char* end;
+		long choice = strtol(line, &end, 10);
+
+		if (end != line)
+		{
+			while (*end == ' ' || *end == '\t')
+				end++;
+			if ((*end == '\n' || *end == '\0') && choice >= TUI_QUIT && choice <= TUI_BOTH)
+				return (int)choice;
+		}
+
+
+
 
 		printf("\n  " C_RED "Invalid choice, try again." C_RESET "\n\n");
 	}

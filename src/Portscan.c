@@ -1,4 +1,7 @@
 #include "Portscan.h"
+#include "tui.h"
+
+
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -10,6 +13,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <signal.h>
+
 
 #define TICK_MS 100
 
@@ -79,6 +84,21 @@ static int set_nonblocking (int fd)
 }
 
 
+
+
+static int count_open(const int* state, int n)
+{
+    int c = 0;
+
+    for (int i = 0; i < n; i++)
+        if (state[i] == PORT_OPEN) c++;
+
+    return c;
+}
+
+
+
+
 int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
 {
     struct addrinfo hints, *res = NULL;
@@ -118,12 +138,16 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
         if (fd < 0 )
         {   
             perror("socket");
+
+
+            state[i] = PORT_UNKNOWN;
             continue;
         }
 
         if (set_nonblocking(fd) < 0)
         {
             close(fd);
+            state[i] = PORT_UNKNOWN;
             continue;
         }
 
@@ -160,7 +184,7 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
 
         int wait_ms = left > TICK_MS ? TICK_MS : (int)left;
 
-        int ready = poll(pfds, NUM_PORTS, (int)left);
+        int ready = poll(pfds, NUM_PORTS, wait_ms);
         if (ready < 0)
         {
             if (errno == EINTR) continue;
@@ -169,28 +193,34 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
             break;
         }
 
-        if (ready == 0) break;
 
 
-        for (int i = 0; i < NUM_PORTS; i++)
-        {
-            if (pfds[i].fd < 0 || pfds[i].revents == 0)
-                continue;
 
-            int err = 0;
-            socklen_t len = sizeof(err);
-            if (getsockopt(pfds[i].fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 )
-                err = errno;
+        if (ready > 0) {
+            for (int i = 0; i < NUM_PORTS; i++)
+            {
+                if (pfds[i].fd < 0 || pfds[i].revents == 0)
+                    continue;
 
-            if (err == 0) state[i] = PORT_OPEN;
-            else if (err == ECONNREFUSED) state[i] = PORT_CLOSED;
-            else state[i] = PORT_FILTERED;
+                int err = 0;
+                socklen_t len = sizeof(err);
+                if (getsockopt(pfds[i].fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 )
+                    err = errno;
 
-            close(pfds[i].fd);
-            pfds[i].fd = -1;
-            pending--;
+                if (err == 0) state[i] = PORT_OPEN;
+                else if (err == ECONNREFUSED) state[i] = PORT_CLOSED;
+                else state[i] = PORT_FILTERED;
+
+                close(pfds[i].fd);
+                pfds[i].fd = -1;
+                pending--;
+            }
         }
+
+        tui_progress(NUM_PORTS - pending, NUM_PORTS, count_open(state, NUM_PORTS));
     }
+
+
 
     int interrupted = !*keep_running;
     for(int i =0; i < NUM_PORTS; i++)
@@ -205,13 +235,13 @@ int scan_ports(const char* host, volatile sig_atomic_t* keep_running)
     }
 
     int done = interrupted ? NUM_PORTS - pending : NUM_PORTS;
-    tui_progess(done, NUM_PORTS, count_open(state, NUM_PORTS));
+    tui_progress(done, NUM_PORTS, count_open(state, NUM_PORTS));
     tui_progress_done();
         
     int n_open = 0, n_closed = 0, n_filtered = 0;
     char port_col[16];
 
-    printf("%-10s %-8s %s\n", "PORTS", "STATE", "SERVICE");
+    printf("%-10s %-8s %s\n", "PORT", "STATE", "SERVICE");
     for (int i = 0; i < NUM_PORTS; i++)
     {
         switch (state[i])

@@ -1,12 +1,11 @@
-#ifndef tui_h
-#define tui_h
+#ifndef TUI_H
+#define TUI_H
 
 enum {
-	tui_quit = 0;
-	tui_ping = 1;
-	tui_portscan = 2;
-	tui_both = 3;
-};
+	TUI_QUIT     = 0,
+	TUI_PING     = 1,
+	TUI_PORTSCAN = 2,
+	TUI_BOTH     = 3};
 
 void tui_logo(void);
 
@@ -18,4 +17,4 @@ void tui_progress(int done, int total, int n_open);
 
 void tui_progress_done(void);
 
-#endif;
+#endif
